@@ -29,7 +29,7 @@ async def txt2img_endpoint(request_body: dict):
       "seed": request_body.get("seed", -1),
       "cfg_scale": request_body.get("cfg_scale", 7),
       "sampler_index": request_body.get("sampler_index", "DPM++ 2M Karras"),
-      "width": request_body.get("width", 900),
+      "width": request_body.get("width", 512),
       "height": request_body.get("height", 512),
       "steps": request_body.get("steps", 25)
    }
