@@ -6,8 +6,9 @@ import base64
 from config import url, pil_to_base64
 from rq import Queue
 from redis import Redis
-from jobs import txt2img
+from jobs import txt2img, upscale
 from rq.registry import FinishedJobRegistry
+import io
 
 app = FastAPI()
 redis_conn = Redis()
@@ -68,33 +69,28 @@ async def txt2img_endpoint(task_id: str):
       'result': job.result
    }
 
+import base64
+
 @app.get("/upscale")
-async def txt2img_endpoint(request_body: dict):
-   img = request_body["img_path"]
-   if not img:
-      return {"error": "Missing mandatory 'img_path' field in the request."}
-   img_name = img.split('/')[-1]
-   pil_image = Image.open(img)
+async def upscale_endpoint(request_body: dict):
+   img_base64 = request_body.get("img_base64")
+   if not img_base64:
+      return {"error": "Missing mandatory 'img_base64' field in the request."}
+
+   img_data = base64.b64decode(img_base64)
+   pil_image = Image.open(io.BytesIO(img_data))
+
    request_body = {
       "denoising_strength": 0.1,
       "init_images": [pil_to_base64(pil_image)],
-      "script_args": ["",64,"ESRGAN_4x",2],
+      "script_args": ["", 64, "ESRGAN_4x", 2],
       "script_name": "SD upscale"
    }
 
-   response = requests.post(url=f'{url}/sdapi/v1/img2img', json={**request_body}, timeout=280).json()
-   images_out = []
-   for i, image_base64 in enumerate(response['images']):
-      image_data = base64.b64decode(image_base64)
-
-      filename = f"images/upscaled_{img_name}.png"
-
-      with open(filename, "wb") as f:
-         f.write(image_data)
-
-      images_out.append(image_base64)
-
-   return {"images": images_out}
+   job = ai_queue.enqueue(upscale, request_body)
+   return {
+      'task_id': job.id,
+   }
 
 @app.get("/models")
 async def current_model():
