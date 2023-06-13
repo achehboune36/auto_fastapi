@@ -7,11 +7,12 @@ from config import url, pil_to_base64
 from rq import Queue
 from redis import Redis
 from jobs import txt2img
-import time
+from rq.registry import FinishedJobRegistry
 
 app = FastAPI()
 redis_conn = Redis()
 ai_queue = Queue('ai_queue', connection=redis_conn)
+registry = FinishedJobRegistry(queue=ai_queue)
     
 @app.get("/")
 async def root():
@@ -31,48 +32,33 @@ async def txt2img_endpoint(request_body: dict):
       "sampler_index": request_body.get("sampler_index", "DPM++ 2M Karras"),
       "width": request_body.get("width", 512),
       "height": request_body.get("height", 512),
-      "steps": request_body.get("steps", 25)
+      "steps": request_body.get("steps", 25),
+      "n_iter": request_body.get("n_iter", 1)
    }
 
-   # job = ai_queue.enqueue(txt2img, query)
-   # return {
-   #    'request_id': job.id,
-   # }
+   job = ai_queue.enqueue(txt2img, query)
+   return {
+      'task_id': job.id,
+   }
 
-   response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=query).json()
-   images_out = []
+@app.get("/txt2img/{task_id}")
+async def txt2img_endpoint(task_id: str):
+   job = ai_queue.fetch_job(task_id)
+   if not job:
+      raise HTTPException(status_code=404, detail="request not found")
 
-   for i, image_base64 in enumerate(response['images']):
-      image_data = base64.b64decode(image_base64)
+   if job.get_status() == 'failed':
+      raise HTTPException(status_code=500, detail="Job failed")
 
-      timestamp = int(time.time())
-      filename = f"images/image_{timestamp}_{i}.png"
+   if job.get_status() != 'finished':
+      return {
+         'status': job.get_status()
+      }
 
-      with open(filename, "wb") as f:
-         f.write(image_data)
-
-      images_out.append(image_base64)
-
-   return {"images": images_out}
-
-# @app.get("/txt2img/{request_id}")
-# async def txt2img_endpoint(request_id: str):
-#    job = ai_queue.fetch_job(request_id)
-#    if not job:
-#       raise HTTPException(status_code=404, detail="request not found")
-
-#    if job.get_status() == 'failed':
-#       raise HTTPException(status_code=500, detail="Job failed")
-
-#    if job.get_status() != 'finished':
-#       return {
-#          'status': job.get_status()
-#       }
-
-#    return {
-#       'status': job.get_status(),
-#       'result': job.result
-#    }
+   return {
+      'status': job.get_status(),
+      'result': job.result
+   }
 
 @app.get("/upscale")
 async def txt2img_endpoint(request_body: dict):
@@ -132,5 +118,5 @@ async def switch_model(model_name: str):
    
 @app.get("/progress")
 async def get_progress():
-   response = requests.get(url=f'{url}/sdapi/v1/progress?skip_current_image=false')
+   response = requests.get(url=f'{url}/sdapi/v1/progress?skip_current_image=true')
    return response.json()
