@@ -49,6 +49,14 @@ async def txt2img_endpoint(task_id: str):
 
    if job.get_status() == 'failed':
       raise HTTPException(status_code=500, detail="Job failed")
+   
+   if job.get_status() == 'started':
+      response = requests.get(url=f'{url}/sdapi/v1/progress?skip_current_image=true')
+      return {
+         'status': job.get_status(),
+         'progress': response.json()['progress'],
+         'eta_relative': response.json()['eta_relative']
+      }
 
    if job.get_status() != 'finished':
       return {
