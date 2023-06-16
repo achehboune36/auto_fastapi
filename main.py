@@ -35,8 +35,7 @@ async def txt2img_endpoint(request_body: dict):
       "width": request_body.get("width", 512),
       "height": request_body.get("height", 512),
       "steps": request_body.get("steps", 25),
-      "n_iter": request_body.get("n_iter", 1),
-      "tiling": request_body.get("tiling", False)
+      "n_iter": request_body.get("n_iter", 1)
    }
 
    job = ai_queue.enqueue(txt2img, query)
