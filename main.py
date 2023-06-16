@@ -15,7 +15,7 @@ app = FastAPI()
 redis_conn = Redis()
 ai_queue = Queue('ai_queue', connection=redis_conn)
 registry = FinishedJobRegistry(queue=ai_queue)
-    
+
 @app.get("/")
 async def root():
    return {"message": "Hello World"}
@@ -35,7 +35,8 @@ async def txt2img_endpoint(request_body: dict):
       "width": request_body.get("width", 512),
       "height": request_body.get("height", 512),
       "steps": request_body.get("steps", 25),
-      "n_iter": request_body.get("n_iter", 1)
+      "n_iter": request_body.get("n_iter", 1),
+      "tiling": request_body.get("tiling", False)
    }
 
    job = ai_queue.enqueue(txt2img, query)
@@ -51,7 +52,7 @@ async def txt2img_endpoint(task_id: str):
 
    if job.get_status() == 'failed':
       raise HTTPException(status_code=500, detail="Job failed")
-   
+
    if job.get_status() == 'started':
       response = requests.get(url=f'{url}/sdapi/v1/progress?skip_current_image=true')
       return {
@@ -120,43 +121,13 @@ async def switch_model(model_name: str):
    else:
       print(response.json())
       return {"message": "Error occurred while switching the model"}
-   
+
 @app.get("/progress")
 async def get_progress():
    response = requests.get(url=f'{url}/sdapi/v1/progress?skip_current_image=true')
    return response.json()
 
-@app.get('/txt2img360')
-async def txt2img360(request_body: dict):
-    prompt = request_body.get("prompt")
-    if not prompt:
-        return {"error": "Missing mandatory 'prompt' field in the request."}
-    
-    query = {
-      "prompt": prompt,
-      "negative_prompt": request_body.get("negative_prompt", ""),
-      "seed": request_body.get("seed", -1),
-      "cfg_scale": request_body.get("cfg_scale", 7),
-      "sampler_index": request_body.get("sampler_index", "DPM++ 2M Karras"),
-      "width": request_body.get("width", 512),
-      "height": request_body.get("height", 512),
-      "steps": request_body.get("steps", 25),
-      "sampler_name": "DPM++ 2M",
-      "tiling": True,
-   }
-
-    response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=query).json()
-    images_out = []
-
-    for i, image_base64 in enumerate(response['images']):
-      image_data = base64.b64decode(image_base64)
-
-      timestamp = int(time.time())
-      filename = f"images/image_{timestamp}_{i}.png"
-
-      with open(filename, "wb") as f:
-         f.write(image_data)
-
-      images_out.append(image_base64)
-
-    return {"images": images_out}
+@app.get('/png-info')
+async def png_info(payload: dict):
+   response = requests.post(url=f'{url}/sdapi/v1/png-info', json=payload)
+   return response
