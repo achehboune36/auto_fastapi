@@ -10,11 +10,22 @@ from jobs import txt2img, upscale
 from rq.registry import FinishedJobRegistry
 import io
 import time
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 redis_conn = Redis()
 ai_queue = Queue('ai_queue', connection=redis_conn)
 registry = FinishedJobRegistry(queue=ai_queue)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins="*",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/")
 async def root():
