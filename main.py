@@ -14,13 +14,14 @@ from audiocraft.models import MusicGen
 from audiocraft.data.audio import audio_write
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
+import time
 
 model = MusicGen.get_pretrained('melody')
 app = FastAPI()
 redis_conn = Redis()
 ai_queue = Queue('ai_queue', connection=redis_conn)
 registry = FinishedJobRegistry(queue=ai_queue)
-    
+
 @app.get("/")
 async def root():
    return {"message": "Hello World"}
@@ -56,7 +57,7 @@ async def txt2img_endpoint(task_id: str):
 
    if job.get_status() == 'failed':
       raise HTTPException(status_code=500, detail="Job failed")
-   
+
    if job.get_status() == 'started':
       response = requests.get(url=f'{url}/sdapi/v1/progress?skip_current_image=true')
       return {
@@ -124,7 +125,7 @@ async def switch_model(model_name: str):
    else:
       print(response.json())
       return {"message": "Error occurred while switching the model"}
-   
+
 @app.get("/progress")
 async def get_progress():
    response = requests.get(url=f'{url}/sdapi/v1/progress?skip_current_image=true')
@@ -157,3 +158,8 @@ async def get_progress(request: Request, request_body: MusicRequest):
       mp4_files.append(mp4_path+'.wav')
 
     return FileResponse(mp4_files[0], media_type="video/mp4")
+
+@app.get('/png-info')
+async def png_info(payload: dict):
+   response = requests.post(url=f'{url}/sdapi/v1/png-info', json=payload)
+   return response
