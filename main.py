@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from PIL import Image
 import requests
 import base64
@@ -9,7 +9,13 @@ from redis import Redis
 from jobs import txt2img, upscale
 from rq.registry import FinishedJobRegistry
 import io
+import torchaudio
+from audiocraft.models import MusicGen
+from audiocraft.data.audio import audio_write
+from pydantic import BaseModel
+from fastapi.responses import FileResponse
 
+model = MusicGen.get_pretrained('melody')
 app = FastAPI()
 redis_conn = Redis()
 ai_queue = Queue('ai_queue', connection=redis_conn)
@@ -104,7 +110,6 @@ async def current_model():
 @app.get("/current-model")
 async def current_model():
    opt = requests.get(url=f'{url}/sdapi/v1/options')
-   print(opt.json())
    current_model = opt.json()["sd_model_checkpoint"]
    return {"message": f"current loaded model is {current_model}"}
 
@@ -124,3 +129,31 @@ async def switch_model(model_name: str):
 async def get_progress():
    response = requests.get(url=f'{url}/sdapi/v1/progress?skip_current_image=true')
    return response.json()
+
+class MusicRequest(BaseModel):
+    prompt: str
+    duration: int = 10
+
+@app.post("/txt2music")
+async def get_progress(request: Request, request_body: MusicRequest):
+    prompt = request_body.prompt
+    duration = request_body.duration
+
+    if not prompt:
+        return {"error": "Missing mandatory 'prompt' field in the request."}
+
+    if duration > 60:
+        duration = 60
+
+    model.set_generation_params(duration=duration)
+    wav = model.generate_unconditional(4)
+    descriptions = [prompt]
+    wav = model.generate(descriptions)
+
+    mp4_files = []
+    for idx, one_wav in enumerate(wav):
+      mp4_path = f'output/{idx}'
+      audio_write(mp4_path, one_wav.cpu(), model.sample_rate, strategy="loudness", loudness_compressor=True)
+      mp4_files.append(mp4_path+'.wav')
+
+    return FileResponse(mp4_files[0], media_type="video/mp4")

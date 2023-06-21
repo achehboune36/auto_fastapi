@@ -2,7 +2,7 @@
 import io
 import base64
 
-url = "https://b697ac1463b2f4fa3c.gradio.live"
+url = "http://127.0.0.1:7860"
 
 def pil_to_base64(pil_image):
     with io.BytesIO() as stream:
