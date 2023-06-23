@@ -55,7 +55,9 @@ async def txt2img_endpoint(request_body: dict):
       "steps": request_body.get("steps", 25),
       "n_iter": request_body.get("n_iter", 1),
       "Asymmetric_tiling":{"args":[True,True,False,0,-1]},
-      "tiling":request_body.get("tiling", False)
+      "tiling":request_body.get("tiling", False),
+       "hr_sampler_name": request_body.get("hr_sampler_name", "Euler"),
+       "sampler_name": request_body.get("sampler_name", "Euler")
    }
 
    job = ai_queue.enqueue(txt2img, query)
