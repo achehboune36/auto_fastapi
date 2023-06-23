@@ -16,8 +16,9 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse
 import time
 from fastapi.middleware.cors import CORSMiddleware
+import torch
+import gc
 
-model = MusicGen.get_pretrained('melody')
 app = FastAPI()
 redis_conn = Redis()
 ai_queue = Queue('ai_queue', connection=redis_conn)
@@ -150,6 +151,7 @@ class MusicRequest(BaseModel):
 
 @app.post("/txt2music")
 async def get_progress(request: Request, request_body: MusicRequest):
+    model = MusicGen.get_pretrained('melody')
     prompt = request_body.prompt
     duration = request_body.duration
 
@@ -169,7 +171,10 @@ async def get_progress(request: Request, request_body: MusicRequest):
       mp4_path = f'output/{idx}'
       audio_write(mp4_path, one_wav.cpu(), model.sample_rate, strategy="loudness", loudness_compressor=True)
       mp4_files.append(mp4_path+'.wav')
-
+    del model
+    del wav
+    torch.cuda.empty_cache()
+    gc.collect()
     return FileResponse(mp4_files[0], media_type="video/mp4")
 
 @app.get('/png-info')
