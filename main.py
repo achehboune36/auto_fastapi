@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException, Request
 from PIL import Image
 import requests
 import base64
-from config import url, pil_to_base64
+from config import url, pil_to_base64, llama_host, get_llama_request_body
 from rq import Queue
 from redis import Redis
 from jobs import txt2img, upscale
@@ -182,4 +182,10 @@ async def get_progress(request: Request, request_body: MusicRequest):
 @app.get('/png-info')
 async def png_info(payload: dict):
    response = requests.post(url=f'{url}/sdapi/v1/png-info', json=payload)
+   return response
+
+@app.get('/llama')
+async def llama(prompt: str):
+   payload = get_llama_request_body(prompt)
+   response = requests.post(url=f'{llama_host}/api/v1/generate', json=payload)
    return response
