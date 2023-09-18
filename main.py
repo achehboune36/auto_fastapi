@@ -6,7 +6,7 @@ import base64
 from config import url, pil_to_base64, llama_host, get_llama_request_body
 from rq import Queue
 from redis import Redis
-from jobs import txt2img, upscale
+from jobs import txt2img, upscale,img2img
 from rq.registry import FinishedJobRegistry
 import io
 import torchaudio
@@ -64,6 +64,38 @@ async def txt2img_endpoint(request_body: dict):
    return {
       'task_id': job.id,
    }
+
+@app.get("/img2img")
+async def img2img_endpoint(request_body: dict):
+   prompt = request_body.get("prompt")
+   init_images = request_body.get("init_images")
+   if not prompt:
+      return {"error": "Missing mandatory 'prompt' field in the request."}
+   if not init_images:
+      return {"error": "Missing mandatory 'init_images' field in the request."}
+   
+   query = {
+      "prompt": request_body.get("prompt"),
+      "negative_prompt": request_body.get("negative_prompt", ""),
+      "seed": request_body.get("seed", -1),
+      "cfg_scale": request_body.get("cfg_scale", 7),
+      "sampler_index": request_body.get("sampler_index", "DPM++ 2M Karras"),
+      "width": request_body.get("width", 512),
+      "height": request_body.get("height", 512),
+      "steps": request_body.get("steps", 25),
+      "n_iter": request_body.get("n_iter", 1),
+      "Asymmetric_tiling":{"args":[True,True,False,0,-1]},
+      "tiling":request_body.get("tiling", False),
+      "hr_sampler_name": request_body.get("hr_sampler_name", "Euler"),
+      "sampler_name": request_body.get("sampler_name", "Euler"),
+      "init_images":request_body.get("init_images")
+   }
+
+   job = ai_queue.enqueue(img2img, query)
+   return {
+      'task_id': job.id,
+   }
+
 
 @app.get("/txt2img/{task_id}")
 async def txt2img_endpoint(task_id: str):
