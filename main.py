@@ -160,7 +160,7 @@ async def current_model():
 async def current_model():
    opt = requests.get(url=f'{url}/sdapi/v1/options')
    current_model = opt.json()["sd_model_checkpoint"]
-   return {"message": f"current loaded model is {current_model}"}
+   return {"model": current_model }
 
 @app.get("/set-model")
 async def switch_model(model_name: str):
