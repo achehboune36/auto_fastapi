@@ -18,12 +18,18 @@ import time
 from fastapi.middleware.cors import CORSMiddleware
 import torch
 import gc
+from transformers import AutoProcessor, BarkModel
+import soundfile as sf
 
 app = FastAPI()
 redis_conn = Redis()
 ai_queue = Queue('ai_queue', connection=redis_conn)
 registry = FinishedJobRegistry(queue=ai_queue)
 
+# Bark AI congig 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+processor = AutoProcessor.from_pretrained("suno/bark")
+model = BarkModel.from_pretrained("suno/bark").to(device)
 
 app.add_middleware(
     CORSMiddleware,
@@ -221,3 +227,26 @@ async def llama(prompt: str):
    payload = get_llama_request_body(prompt)
    response = requests.post(url=f'{llama_host}/api/v1/generate', json=payload)
    return response
+
+class AudioRequest(BaseModel):
+    prompt: str
+
+@app.post("/generate_audio")
+def generate_audio_endpoint(request: AudioRequest):
+    voice_preset = "v2/en_speaker_6"
+    inputs = processor(request.prompt, voice_preset=voice_preset, return_tensors="pt")
+
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    with torch.no_grad():
+        audio_array = model.generate(**inputs)
+    
+    audio_array = audio_array.cpu().numpy().squeeze()
+
+    buffer = io.BytesIO()
+    sf.write(buffer, audio_array, 24000, format='WAV')
+    buffer.seek(0)
+
+    audio_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+
+    return {"audio_base64": audio_base64}
