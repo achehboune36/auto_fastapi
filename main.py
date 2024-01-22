@@ -20,6 +20,7 @@ import torch
 import gc
 from transformers import AutoProcessor, BarkModel
 import soundfile as sf
+from typing import Optional
 
 app = FastAPI()
 redis_conn = Redis()
@@ -227,16 +228,17 @@ async def llama(prompt: str):
 
 class AudioRequest(BaseModel):
     prompt: str
+    voice_preset: Optional[str] = None
 
 @app.post("/generate_audio")
 def generate_audio_endpoint(request: AudioRequest):
 
-    # Bark AI congig 
+    # Bark AI config
     device = "cuda" if torch.cuda.is_available() else "cpu"
     processor = AutoProcessor.from_pretrained("suno/bark")
     model = BarkModel.from_pretrained("suno/bark").to(device)
     
-    voice_preset = "v2/en_speaker_6"
+    voice_preset = f'prompts/{request.voice_preset}' if request.voice_preset else "v2/en_speaker_6"
     inputs = processor(request.prompt, voice_preset=voice_preset, return_tensors="pt")
 
     inputs = {k: v.to(device) for k, v in inputs.items()}
