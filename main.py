@@ -26,10 +26,7 @@ redis_conn = Redis()
 ai_queue = Queue('ai_queue', connection=redis_conn)
 registry = FinishedJobRegistry(queue=ai_queue)
 
-# Bark AI congig 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-processor = AutoProcessor.from_pretrained("suno/bark")
-model = BarkModel.from_pretrained("suno/bark").to(device)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -233,6 +230,12 @@ class AudioRequest(BaseModel):
 
 @app.post("/generate_audio")
 def generate_audio_endpoint(request: AudioRequest):
+
+    # Bark AI congig 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    processor = AutoProcessor.from_pretrained("suno/bark")
+    model = BarkModel.from_pretrained("suno/bark").to(device)
+    
     voice_preset = "v2/en_speaker_6"
     inputs = processor(request.prompt, voice_preset=voice_preset, return_tensors="pt")
 
@@ -248,5 +251,10 @@ def generate_audio_endpoint(request: AudioRequest):
     buffer.seek(0)
 
     audio_base64 = base64.b64encode(buffer.read()).decode('utf-8')
-
+    
+    del processor
+    del model
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return {"audio_base64": audio_base64}
