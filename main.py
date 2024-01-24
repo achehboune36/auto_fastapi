@@ -291,7 +291,7 @@ async def generate_npz(file: UploadFile = File(...), voice_name: str = Query(...
       model = load_codec_model(use_gpu=True if device == 'cuda' else False)
 
       hubert_manager = HuBERTManager()
-      hubert_manager.make_sure_hubefile_pathrt_installed()
+      hubert_manager.make_sure_hubert_installed()
       hubert_manager.make_sure_tokenizer_installed()
 
       # Load the HuBERT model
