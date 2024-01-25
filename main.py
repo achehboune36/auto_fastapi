@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Query
 from PIL import Image
 import requests
 import base64
@@ -18,11 +18,24 @@ import time
 from fastapi.middleware.cors import CORSMiddleware
 import torch
 import gc
+from transformers import AutoProcessor, BarkModel
+import soundfile as sf
+from typing import Optional
+from pathlib import Path
+from pydub import AudioSegment 
+import numpy as np
+from clone_vc import load_codec_model, generate_text_semantic
+from hubert_manager import HuBERTManager
+from pre_kmeans_hubert import CustomHubert
+from customtokenizer import CustomTokenizer
+from encodec.utils import convert_audio
+
 
 app = FastAPI()
 redis_conn = Redis()
 ai_queue = Queue('ai_queue', connection=redis_conn)
 registry = FinishedJobRegistry(queue=ai_queue)
+
 
 
 app.add_middleware(
@@ -221,3 +234,90 @@ async def llama(prompt: str):
    payload = get_llama_request_body(prompt)
    response = requests.post(url=f'{llama_host}/api/v1/generate', json=payload)
    return response
+
+class AudioRequest(BaseModel):
+      prompt: str
+      voice_preset: Optional[str] = None
+
+@app.post("/generate_audio")
+def generate_audio_endpoint(request: AudioRequest):
+
+      # Bark AI config
+      device = "cuda" if torch.cuda.is_available() else "cpu"
+      processor = AutoProcessor.from_pretrained("suno/bark")
+      model = BarkModel.from_pretrained("suno/bark").to(device)
+
+      voice_preset = f'prompts/{request.voice_preset}' if request.voice_preset else "v2/en_speaker_6"
+      inputs = processor(request.prompt, voice_preset=voice_preset, return_tensors="pt")
+
+      inputs = {k: v.to(device) for k, v in inputs.items()}
+
+      with torch.no_grad():
+         audio_array = model.generate(**inputs)
+
+      audio_array = audio_array.cpu().numpy().squeeze()
+
+      buffer = io.BytesIO()
+      sf.write(buffer, audio_array, 24000, format='WAV')
+      buffer.seek(0)
+
+      audio_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+
+      del processor
+      del model
+      torch.cuda.empty_cache()
+      gc.collect()
+
+      return {"audio_base64": audio_base64}
+
+@app.post("/generate_npz")
+async def generate_npz(file: UploadFile = File(...), voice_name: str = Query(...)):
+      # Save the uploaded file
+      temp_dir = Path('temp_files')
+      temp_dir.mkdir(exist_ok=True)
+      file_path = temp_dir / file.filename
+      with open(file_path, 'wb') as buffer:
+         buffer.write(file.file.read())
+
+      # Convert MP3 to WAV if necessary       
+      if file_path.suffix.lower() == '.mp3':
+         audio = AudioSegment.from_mp3(file_path)
+         wav_path = file_path.with_suffix('.wav')
+         audio.export(wav_path, format='wav')
+         file_path.unlink()
+         file_path = wav_path
+
+      device = 'cuda' # or 'cpu'
+      model = load_codec_model(use_gpu=True if device == 'cuda' else False)
+
+      hubert_manager = HuBERTManager()
+      hubert_manager.make_sure_hubert_installed()
+      hubert_manager.make_sure_tokenizer_installed()
+
+      # Load the HuBERT model
+      hubert_model = CustomHubert(checkpoint_path='data/models/hubert/hubert.pt').to(device)
+
+      # Load the CustomTokenizer model
+      tokenizer = CustomTokenizer.load_from_checkpoint('data/models/hubert/tokenizer.pth').to(device)
+
+      # Use the uploaded file
+      wav, sr = torchaudio.load(file_path)
+      wav = convert_audio(wav, sr, model.sample_rate, model.channels)
+      wav = wav.to(device)
+
+      semantic_vectors = hubert_model.forward(wav, input_sample_hz=model.sample_rate)
+      semantic_tokens = tokenizer.get_token(semantic_vectors)
+
+      with torch.no_grad():
+         encoded_frames = model.encode(wav.unsqueeze(0))
+      codes = torch.cat([encoded[0] for encoded in encoded_frames], dim=-1).squeeze()  # [n_q, T]
+
+      # move codes to cpu
+      codes = codes.cpu().numpy()
+      # move semantic tokens to cpu
+      semantic_tokens = semantic_tokens.cpu().numpy()
+
+      output_path = 'prompts/' + voice_name + '.npz'
+      np.savez(output_path, fine_prompt=codes, coarse_prompt=codes[:2, :], semantic_prompt=semantic_tokens)
+
+      return output_path
